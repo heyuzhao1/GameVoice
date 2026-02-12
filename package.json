@@ -1,0 +1,71 @@
+{
+  "name": "gamevoice",
+  "version": "0.1.0",
+  "description": "低延迟游戏开黑语音程序",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node start-simple.js dev",
+    "electron": "electron .",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:portable": "npm run build && electron-builder --win portable",
+    "dist:all": "npm run build && electron-builder -wml",
+    "package": "npm run build && electron-builder --dir",
+    "build:full": "node scripts/build.js",
+    "build:portable": "node scripts/build.js portable",
+    "build:nsis": "node scripts/build.js nsis",
+    "test": "jest"
+  },
+  "keywords": [
+    "game",
+    "voice",
+    "chat",
+    "p2p",
+    "webrtc",
+    "low-latency"
+  ],
+  "author": "GameVoice Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/get": "^4.0.2",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.12.7",
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "electron": "^28.3.3",
+    "electron-builder": "^26.7.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.1",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "jest": "^29.7.0",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "terser": "^5.46.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.0",
+    "vite-plugin-node-polyfills": "^0.25.0"
+  },
+  "dependencies": {
+    "lucide-react": "^0.563.0",
+    "open": "^11.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "simple-peer": "^9.11.1",
+    "socket.io-client": "^4.7.4",
+    "ws": "^8.18.3",
+    "webrtc-adapter": "^8.2.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

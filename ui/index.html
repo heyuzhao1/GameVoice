@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: http: https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' https: data:; img-src 'self' data: https:; media-src 'self' blob: data:;">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GameVoice - 游戏开黑语音程序</title>
+
+    <!-- 性能优化：预加载关键资源 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- 图标 -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- PWA配置 -->
+    <meta name="theme-color" content="#1a1a1a" />
+    <meta
+      name="description"
+      content="低延迟游戏开黑语音程序，专为游戏玩家设计"
+    />
+    <meta name="keywords" content="游戏语音,开黑,P2P,低延迟,语音聊天" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="GameVoice - 游戏开黑语音程序" />
+    <meta
+      property="og:description"
+      content="低延迟游戏开黑语音程序，专为游戏玩家设计"
+    />
+    <meta property="og:type" content="application" />
+    <meta property="og:image" content="/og-image.png" />
+
+    <script>
+      window.global = window
+      if (!window.process) {
+        window.process = {
+          env: { NODE_ENV: 'development' },
+          browser: true,
+          version: '',
+          nextTick: function (cb) {
+            setTimeout(cb, 0)
+          },
+        }
+      } else {
+        window.process.browser = true
+      }
+      
+      // Polyfill require for browser environment if needed by some legacy modules
+      if (!window.require) {
+        window.require = function(module) {
+          console.warn('Polyfilled require called for:', module);
+          if (module === 'events') return window.EventEmitter;
+          throw new Error('Module not found: ' + module);
+        };
+      }
+    </script>
+
+    <!-- 性能优化：防止布局偏移 -->
+    <style>
+      /* 关键CSS内联，避免FOUT */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        background: #0a0a0a;
+        color: #f8fafc;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      #root {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* 加载动画 */
+      .loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #0a0a0a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.3s ease-out;
+      }
+
+      .loading-logo {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 24px;
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      .loading-text {
+        font-size: 18px;
+        font-weight: 500;
+        color: #60a5fa;
+        margin-bottom: 16px;
+      }
+
+      .loading-progress {
+        width: 200px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .loading-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #10b981);
+        border-radius: 2px;
+        animation: loading 1.5s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.6;
+          transform: scale(0.95);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes loading {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(200%);
+        }
+      }
+
+      /* 隐藏滚动条但保持滚动功能 */
+      .hide-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+      .hide-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 加载屏幕 -->
+    <div id="loading" class="loading-screen">
+      <div class="loading-logo">
+        <svg
+          viewBox="0 0 100 100"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="50"
+            cy="50"
+            r="40"
+            stroke="#3b82f6"
+            stroke-width="8"
+            stroke-linecap="round"
+          >
+            <animate
+              attributeName="stroke-dasharray"
+              values="0,250;250,0;0,250"
+              dur="3s"
+              repeatCount="indefinite"
+            />
+          </circle>
+          <path
+            d="M30 50 L45 65 L70 35"
+            stroke="#10b981"
+            stroke-width="8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <animate
+              attributeName="stroke-dasharray"
+              values="0,50;50,0"
+              dur="1.5s"
+              repeatCount="indefinite"
+            />
+          </path>
+        </svg>
+      </div>
+      <div class="loading-text">正在启动 GameVoice...</div>
+      <div class="loading-progress">
+        <div class="loading-progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- 应用根节点 -->
+    <div id="root"></div>
+
+    <script type="module" src="/main.jsx"></script>
+  </body>
+</html>

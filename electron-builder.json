@@ -1,0 +1,63 @@
+{
+  "appId": "com.gamevoice.app",
+  "productName": "GameVoice",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*",
+    "node_modules/**/*",
+    "package.json",
+    "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+    "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+    "!**/node_modules/*.d.ts",
+    "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+    "!.editorconfig",
+    "!**/._*",
+    "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+    "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+    "!**/{appveyor.yml,.travis.yml,circle.yml}",
+    "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+  ],
+  "extraResources": [
+    {
+      "from": "assets/",
+      "to": "assets/",
+      "filter": ["**/*"]
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      }
+    ],
+    "signAndEditExecutable": false,
+    "legalTrademarks": "GameVoice",
+    "requestedExecutionLevel": "asInvoker"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "GameVoice",
+    "uninstallDisplayName": "GameVoice",
+    "license": "LICENSE",
+    "include": "build/installer.nsh"
+  },
+  "portable": {
+    "artifactName": "GameVoice-Portable.exe"
+  },
+  "publish": null,
+  "buildVersion": "0.1.0",
+  "copyright": "Copyright © 2024 GameVoice Team",
+  "compression": "maximum",
+  "asar": false,
+  "nodeGypRebuild": false,
+  "npmRebuild": false,
+  "removePackageScripts": true
+}
