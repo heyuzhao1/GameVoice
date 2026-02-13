@@ -1,67 +1,78 @@
-# GameVoice - 游戏开黑语音程序
+# GameVoice - 游戏开黑语音程序（v0.2.0）
 
-一款专为游戏玩家设计的低延迟、高性能语音通话程序，特别优化同城玩家间的连接。
+一款专为游戏玩家设计的低延迟语音通话桌面应用，聚焦同城玩家低延迟沟通与稳定连接体验。
 
-## 核心特性
+## 已实现功能
 
-1. **UI简单易用**：专注于语音功能，界面简洁直观
-2. **性能占用少**：CPU/内存占用低，不影响游戏性能
-3. **P2P直接连接**：用户之间直接相连，减少服务器中转
-4. **同城延迟优化**：特别优化同城用户间的语音延迟
-5. **语音处理**：支持语音激活检测、降噪、回声消除
+- **P2P 语音通信**：WebRTC 直连，减少中转延迟
+- **房间机制**：创建/加入房间，在线成员实时展示
+- **音频设备管理**：进入房间前即可选择输入设备，支持热插拔
+- **权限与设备检测优化**：提前请求麦克风权限，异步扫描、缓存设备列表
+- **语音处理**：语音激活、降噪、回声消除
+- **UI 体验升级**：骨架屏、渐进式加载、动画开关与更流畅的交互反馈
 
 ## 技术架构
 
-### 核心组件
-- **P2P网络架构**：WebRTC技术实现直接连接
-- **音频处理**：Opus编解码器，Web Audio API处理
-- **网络优化**：STUN/TURN服务器，NAT穿透
-- **UI框架**：Electron + React + Tailwind CSS
+- **前端界面**：Electron + React + Tailwind CSS
+- **音频处理**：WebRTC / Opus / Web Audio API
+- **网络层**：WebSocket / STUN / TURN / ICE
+- **构建打包**：Vite + Electron Builder
 
-### 性能目标
-- 延迟：< 50ms（同城），< 100ms（跨城）
-- CPU占用：< 5%（空闲），< 15%（通话中）
-- 内存占用：< 100MB
+## 快速开始
+
+### 环境要求
+
+- Node.js >= 18
+
+### 安装依赖
+
+```bash
+npm install
+```
+
+### 开发运行
+
+```bash
+npm start
+```
+
+## 打包发布
+
+### 生成安装包（Windows）
+
+```bash
+npm run dist
+```
+
+产物输出到 `release/`，包括：
+
+- `GameVoice Setup 0.2.0.exe`（安装版）
+- `GameVoice-Portable.exe`（便携版）
+
+### 常用脚本
+
+```bash
+npm run dev          # 启动 Vite 开发服务
+npm run build        # 打包前端资源
+npm run dist         # 生成安装包
+npm run dist:portable # 生成便携版
+```
 
 ## 项目结构
 
 ```
 GameVoice/
-├── src/           # 核心源代码
-├── ui/            # 用户界面代码
-├── audio/         # 音频处理模块
-├── network/       # 网络连接模块
-├── tests/         # 测试代码
-└── docs/          # 文档
+├── src/            # 核心源代码（主进程/逻辑）
+├── ui/             # 前端界面
+├── audio/          # 音频处理模块
+├── network/        # 网络连接模块
+├── scripts/        # 构建脚本
+└── docs/           # 文档
 ```
 
-## 开发计划
+## 相关文档
 
-### 第一阶段：基础架构
-1. P2P连接建立
-2. 基本音频传输
-3. 简单UI界面
-
-### 第二阶段：功能完善
-1. 语音激活检测
-2. 降噪和回声消除
-3. 连接优化
-
-### 第三阶段：性能优化
-1. 延迟优化
-2. 资源占用优化
-3. 稳定性提升
-
-## 使用技术
-
-- **前端**：Electron, React, TypeScript, Tailwind CSS
-- **音频**：WebRTC, Opus, Web Audio API
-- **网络**：WebSocket, STUN/TURN, ICE
-- **构建**：Vite, Electron Forge
-
-## 目标用户
-
-- PC游戏玩家
-- 电竞团队
-- 游戏社区
-- 直播主播
+- QUICK_START.md
+- INSTALL.md
+- USER_GUIDE.md
+- TROUBLESHOOTING.md
