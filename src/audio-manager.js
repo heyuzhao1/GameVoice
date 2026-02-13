@@ -4,7 +4,7 @@
  */
 
 import AudioProcessor from '../audio/audio-processor';
-// const AudioProcessor = require('../audio/audio-processor');
+import deviceCache from './utils/device-cache';
 
 class AudioManager {
   constructor() {
@@ -18,8 +18,10 @@ class AudioManager {
     this.isSpeaking = false;
     this.volume = 80; // 0-100
 
-    this.audioDevices = [];
+    // 初始化时尝试从缓存加载设备
+    this.audioDevices = deviceCache.getCachedDevices() || [];
     this.selectedDeviceId = '';
+    this.isDetectingDevices = false;
 
     this.eventListeners = {
       'local-stream-ready': [],
@@ -28,8 +30,17 @@ class AudioManager {
       'speech-detected': [],
       'volume-changed': [],
       'device-changed': [],
+      'detecting-devices': [], // 新增事件
       'error': []
     };
+
+    // 监听设备热插拔
+    if (navigator.mediaDevices && navigator.mediaDevices.ondevicechange !== undefined) {
+      navigator.mediaDevices.ondevicechange = () => {
+        console.log('检测到设备变更，自动刷新...');
+        this.refreshAudioDevices();
+      };
+    }
   }
 
   /**
@@ -37,8 +48,13 @@ class AudioManager {
    */
   async init() {
     try {
-      // 获取音频设备列表
-      await this.refreshAudioDevices();
+      // 如果缓存中有设备，先触发一次更新，让UI显示缓存数据
+      if (this.audioDevices.length > 0) {
+        this.emit('device-changed', this.audioDevices);
+      }
+
+      // 异步刷新设备列表
+      this.refreshAudioDevices();
 
       console.log('音频管理器初始化完成');
       return true;
@@ -51,11 +67,54 @@ class AudioManager {
 
   /**
    * 刷新音频设备列表
+   * @param {number} retryCount 重试次数
    */
-  async refreshAudioDevices() {
+  async refreshAudioDevices(retryCount = 0) {
+    if (this.isDetectingDevices) return;
+    
+    this.isDetectingDevices = true;
+    this.emit('detecting-devices', true);
+
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      this.audioDevices = devices.filter(device => device.kind === 'audioinput');
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let audioInputs = devices.filter(device => device.kind === 'audioinput');
+
+      // 检查是否有设备且标签为空 (说明无权限)
+      // 或者列表完全为空 (可能是权限导致无法枚举)
+      const hasEmptyLabels = audioInputs.some(d => d.deviceId !== 'default' && !d.label);
+      const isEmptyList = audioInputs.length === 0;
+
+      if (hasEmptyLabels || isEmptyList) {
+        console.log('检测到设备列表为空或标签为空，尝试请求权限...');
+        try {
+          // 临时请求一次流以触发权限弹窗
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          
+          // 获取成功后立即关闭流
+          stream.getTracks().forEach(track => track.stop());
+          
+          // 再次枚举，此时应该有 label 了
+          devices = await navigator.mediaDevices.enumerateDevices();
+          audioInputs = devices.filter(device => device.kind === 'audioinput');
+        } catch (err) {
+          console.warn('请求权限失败，只能显示默认名称', err);
+          
+          // 失败重试机制
+          if (retryCount < 2) {
+            console.log(`重试获取设备 (${retryCount + 1}/2)...`);
+            this.isDetectingDevices = false;
+            setTimeout(() => this.refreshAudioDevices(retryCount + 1), 1000);
+            return;
+          }
+        }
+      }
+
+      this.audioDevices = audioInputs;
+      
+      // 更新缓存
+      if (audioInputs.length > 0 && !hasEmptyLabels) {
+        deviceCache.saveDevices(audioInputs);
+      }
 
       if (this.audioDevices.length > 0 && !this.selectedDeviceId) {
         this.selectedDeviceId = this.audioDevices[0].deviceId;
@@ -65,7 +124,16 @@ class AudioManager {
       return this.audioDevices;
     } catch (error) {
       console.error('获取音频设备失败:', error);
+      // 出错时也尝试重试
+      if (retryCount < 2) {
+        this.isDetectingDevices = false;
+        setTimeout(() => this.refreshAudioDevices(retryCount + 1), 1000);
+        return;
+      }
       throw error;
+    } finally {
+      this.isDetectingDevices = false;
+      this.emit('detecting-devices', false);
     }
   }
 

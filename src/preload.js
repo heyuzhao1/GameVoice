@@ -5,5 +5,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
-  getAppInfo: () => ipcRenderer.invoke('get-app-info')
+  getAppInfo: () => ipcRenderer.invoke('get-app-info'),
+  onJoinRoomViaLink: (callback) => ipcRenderer.on('join-room-via-link', (_event, value) => callback(value))
 });

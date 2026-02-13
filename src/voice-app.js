@@ -237,28 +237,32 @@ class VoiceApp extends EventEmitter {
   /**
    * 创建房间
    */
-  async createRoom(roomId = null) {
+  async createRoom(name = null) {
     // 确保音频已启动
     await this.startAudio();
     
-    const id = roomId || `room_${Math.random().toString(36).slice(2, 8)}`;
-    await this.joinRoom(id, { create: true });
-    const room = { id };
-    this.emit('room-created', room);
-    return room;
+    try {
+      const room = await this.signaling.createRoom(name);
+      console.log(`创建房间成功: ${room.id} (${room.name})`);
+      this.emit('room-created', room);
+      return room;
+    } catch (error) {
+      console.error('创建房间失败:', error);
+      throw error;
+    }
   }
 
   /**
    * 加入房间
    */
-  async joinRoom(roomId, options = {}) {
+  async joinRoom(roomId) {
     // 确保音频已启动
     await this.startAudio();
 
     try {
-      await this.signaling.join(roomId, options);
+      const result = await this.signaling.join(roomId);
       console.log(`加入房间成功: ${roomId}`);
-      return { id: roomId };
+      return result;
     } catch (error) {
       console.error('加入房间失败:', error);
       // 不要在这里 emit error，否则会被全局 ErrorBoundary 捕获导致黑屏

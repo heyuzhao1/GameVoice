@@ -1,7 +1,7 @@
 {
   "name": "gamevoice",
-  "version": "0.1.0",
-  "description": "低延迟游戏开黑语音程序",
+  "version": "0.2.0",
+  "description": "低延迟游戏开黑语音程序 - v0.2.0",
   "main": "src/main.js",
   "scripts": {
     "start": "node start-simple.js dev",

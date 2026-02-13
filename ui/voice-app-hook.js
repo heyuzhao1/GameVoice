@@ -74,7 +74,8 @@ export function useVoiceApp() {
     useTurnServer: false,
     voiceActivation: true,
     noiseSuppression: true,
-    echoCancellation: true
+    echoCancellation: true,
+    enableAnimations: true
   });
 
   // 性能统计

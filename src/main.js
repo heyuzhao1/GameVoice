@@ -3,9 +3,28 @@ const path = require('path');
 const fs = require('fs');
 const { startSignalingServer } = require('./signaling-server');
 
+// 注册协议处理
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('voicechat', process.execPath, [path.resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient('voicechat')
+}
+
 // 保持窗口对象的全局引用，避免被垃圾回收
 let mainWindow;
 let signalingServer;
+
+// 单实例锁
+// 在开发环境下允许运行多个实例
+const isDev = process.env.NODE_ENV === 'development';
+if (!isDev) {
+  const gotTheLock = app.requestSingleInstanceLock();
+  if (!gotTheLock) {
+    app.quit();
+  }
+}
 
 const userDataPath = app.getPath('userData');
 const logDir = path.join(userDataPath, 'logs');
@@ -23,6 +42,49 @@ function logLine(...args) {
     console.log(...args);
   } catch (_) { }
 }
+
+function handleDeepLink(url) {
+  logLine('deep-link', url);
+  if (!url || typeof url !== 'string') return;
+  
+  // 格式: voicechat://room/ROOM_ID
+  const match = url.match(/voicechat:\/\/room\/([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    const roomId = match[1];
+    logLine('deep-link-room', roomId);
+    if (mainWindow && mainWindow.webContents) {
+      // 确保页面加载完成
+      if (mainWindow.webContents.isLoading()) {
+        mainWindow.webContents.once('did-finish-load', () => {
+          mainWindow.webContents.send('join-room-via-link', roomId);
+        });
+      } else {
+        mainWindow.webContents.send('join-room-via-link', roomId);
+      }
+    }
+  }
+}
+
+// 处理协议链接启动 (macOS)
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+// 处理协议链接启动 (Windows/Linux)
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // 当运行第二个实例时，焦点聚焦到主窗口
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    
+    // 从命令行参数中提取 URL
+    const url = commandLine.find(arg => arg.startsWith('voicechat://'));
+    if (url) {
+      handleDeepLink(url);
+    }
+  }
+});
 
 process.on('uncaughtException', (err) => {
   logLine('uncaughtException', err && err.stack ? err.stack : String(err));
@@ -71,7 +133,7 @@ function createWindow() {
 
   // 添加Content Security Policy
   const csp = process.env.NODE_ENV === 'development'
-    ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 ws://localhost:5173 ws://127.0.0.1:8765; connect-src 'self' ws: wss: http: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;"
+    ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 ws://localhost:5173 ws://127.0.0.1:8765; connect-src 'self' ws: wss: http: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; media-src 'self' blob: data:;"
     : "default-src 'self'; connect-src 'self' ws: wss: http: https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' blob: data:;";
 
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
@@ -112,6 +174,38 @@ function createWindow() {
     mainWindow.loadFile(distIndexPath);
   }
 
+  // 处理权限请求
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'audioCapture', 'mediaKeySystem'];
+    if (allowedPermissions.includes(permission)) {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
+  // 处理权限检查 (同步) - 修复 Windows 上 enumerateDevices 返回空的问题
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const allowedPermissions = ['media', 'audioCapture', 'mediaKeySystem'];
+    if (allowedPermissions.includes(permission)) {
+      return true;
+    }
+    return false;
+  });
+
+  // 检查媒体访问权限 (macOS)
+  const { systemPreferences } = require('electron');
+  const checkMediaAccess = async () => {
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('microphone');
+      if (status === 'not-determined') {
+        const success = await systemPreferences.askForMediaAccess('microphone');
+        console.log('麦克风权限请求结果:', success);
+      }
+    }
+  };
+  checkMediaAccess();
+
   // 窗口关闭时触发
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -125,42 +219,9 @@ function createWindow() {
 
     const autoJoinRoomId = (process.env.GAMEVOICE_AUTOJOIN_ROOM_ID || '').trim();
     if (autoJoinRoomId) {
-      const script = `
-        (function() {
-          return new Promise((resolve) => {
-            const startedAt = Date.now();
-            const tick = () => {
-              try {
-                const input = document.querySelector('input[placeholder="输入房间ID"]');
-                const buttons = Array.from(document.querySelectorAll('button'));
-                const joinBtn = buttons.find(b => (b.textContent || '').trim() === '加入房间');
-
-                if (input && joinBtn) {
-                  input.value = ${JSON.stringify(autoJoinRoomId)};
-                  input.dispatchEvent(new Event('input', { bubbles: true }));
-                  joinBtn.click();
-                  resolve({ ok: true, clicked: true });
-                  return;
-                }
-
-                if (Date.now() - startedAt > 15000) {
-                  resolve({ ok: false, clicked: false, foundInput: !!input, foundJoinBtn: !!joinBtn });
-                  return;
-                }
-
-                setTimeout(tick, 300);
-              } catch (e) {
-                resolve({ ok: false, error: String(e) });
-              }
-            };
-            tick();
-          });
-        })();
-      `;
-      mainWindow.webContents
-        .executeJavaScript(script, true)
-        .then((result) => logLine('autojoin-result', result))
-        .catch((e) => logLine('autojoin-failed', e && e.stack ? e.stack : String(e)));
+      // 这里的自动加入逻辑可能需要更新以使用新的 join-room-via-link 机制
+      // 或者保持不变作为备用
+      mainWindow.webContents.send('join-room-via-link', autoJoinRoomId);
     }
   });
 }
@@ -183,6 +244,12 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  // 检查启动参数中是否有 URL (Windows/Linux 首次启动)
+  const url = process.argv.find(arg => arg.startsWith('voicechat://'));
+  if (url) {
+    setTimeout(() => handleDeepLink(url), 1000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

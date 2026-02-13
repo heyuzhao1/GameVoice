@@ -31,7 +31,11 @@
   "win": {
     "target": [
       {
-        "target": "dir",
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
         "arch": ["x64"]
       }
     ],
@@ -49,11 +53,17 @@
     "license": "LICENSE",
     "include": "build/installer.nsh"
   },
+  "mac": {
+    "target": "dmg",
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "我们需要访问您的麦克风以便您进行游戏语音聊天。"
+    }
+  },
   "portable": {
     "artifactName": "GameVoice-Portable.exe"
   },
   "publish": null,
-  "buildVersion": "0.1.0",
+  "buildVersion": "0.2.0",
   "copyright": "Copyright © 2024 GameVoice Team",
   "compression": "maximum",
   "asar": false,

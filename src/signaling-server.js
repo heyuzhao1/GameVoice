@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const RoomManager = require('./room-manager');
 
 function safeJsonParse(text) {
   try {
@@ -9,158 +10,201 @@ function safeJsonParse(text) {
 }
 
 function startSignalingServer({ port, host = '127.0.0.1', log = () => {} }) {
-  const clientsByUserId = new Map();
-  const clientInfoBySocket = new Map();
-  const rooms = new Map(); // roomId -> Set(userId)
-
   const wss = new WebSocket.Server({ port, host });
+  const roomManager = new RoomManager();
+  
+  // 映射 WebSocket 到 userId，用于断开连接时清理
+  const wsToUserId = new Map();
+
+  // 监听 RoomManager 事件并转发给客户端
+  roomManager.on('room-message', ({ userId, message }) => {
+    const user = roomManager.getUserInfo(userId);
+    if (user && user.connectionInfo && user.connectionInfo.ws) {
+      if (user.connectionInfo.ws.readyState === WebSocket.OPEN) {
+        user.connectionInfo.ws.send(JSON.stringify(message));
+      }
+    }
+  });
+
+  roomManager.on('user-joined', ({ roomId, userId, room }) => {
+    // 这里的逻辑其实已经被 roomManager.joinRoom 内部的 broadcastToRoom 覆盖了部分
+    // 但我们需要给*当前用户*发送 room-joined 消息，包含房间信息
+    const user = roomManager.getUserInfo(userId);
+    if (user && user.connectionInfo && user.connectionInfo.ws) {
+      const ws = user.connectionInfo.ws;
+      // 构建房间内其他用户列表
+      const users = Array.from(room.users).map(uid => {
+        const u = roomManager.getUserInfo(uid);
+        return {
+          id: u.id,
+          name: u.name,
+          speaking: false,
+          volume: 80 // 默认音量
+        };
+      });
+      
+      ws.send(JSON.stringify({
+        type: 'room-joined',
+        roomId: room.id,
+        roomName: room.name,
+        users: users
+      }));
+    }
+  });
+
+  roomManager.on('room-created', ({ roomId, room }) => {
+    // 房间创建成功，通知创建者
+    // 注意：createRoom 后通常会自动 joinRoom，或者客户端显式 join
+    // 这里我们只负责通知创建成功，如果客户端逻辑是 create -> join，则由 join 处理
+    // 但如果是一步到位，我们需要确认 createRoom 是否自动 join
+    // 查看 room-manager.js，createRoom 会将 creator 加入 users Set，但不会触发 user-joined 事件
+    // 所以我们需要手动处理
+    
+    // 发送 room-created 给创建者
+    const creatorId = room.creator;
+    const user = roomManager.getUserInfo(creatorId);
+    if (user && user.connectionInfo && user.connectionInfo.ws) {
+      user.connectionInfo.ws.send(JSON.stringify({
+        type: 'room-created',
+        roomId: room.id,
+        roomName: room.name
+      }));
+      
+      // 同时也发送 room-joined，因为创建者就在房间里
+      const users = [{
+        id: user.id,
+        name: user.name,
+        speaking: false,
+        volume: 80
+      }];
+      
+      user.connectionInfo.ws.send(JSON.stringify({
+        type: 'room-joined',
+        roomId: room.id,
+        roomName: room.name,
+        users: users
+      }));
+    }
+  });
 
   wss.on('error', (err) => {
     log('signaling-error', err && err.stack ? err.stack : String(err));
   });
 
-  function getRoomUsers(roomId) {
-    const set = rooms.get(roomId);
-    if (!set) return [];
-    const users = [];
-    for (const userId of set) {
-      const info = clientsByUserId.get(userId);
-      if (info) {
-        users.push({
-          id: info.userId,
-          name: info.userName,
-          speaking: false,
-          volume: 80
-        });
-      }
-    }
-    return users;
-  }
-
-  function broadcastToRoom(roomId, message, excludeUserId = null) {
-    const set = rooms.get(roomId);
-    if (!set) return 0;
-    const payload = JSON.stringify(message);
-    let count = 0;
-    for (const userId of set) {
-      if (excludeUserId && userId === excludeUserId) continue;
-      const info = clientsByUserId.get(userId);
-      if (!info) continue;
-      if (info.ws.readyState !== WebSocket.OPEN) continue;
-      info.ws.send(payload);
-      count++;
-    }
-    return count;
-  }
-
-  function leaveRoom(userId) {
-    const info = clientsByUserId.get(userId);
-    if (!info || !info.roomId) return;
-    const { roomId } = info;
-    info.roomId = null;
-    const set = rooms.get(roomId);
-    if (set) {
-      set.delete(userId);
-      if (set.size === 0) rooms.delete(roomId);
-    }
-    broadcastToRoom(roomId, { type: 'user-left', roomId, userId }, userId);
-  }
-
   wss.on('connection', (ws) => {
-    clientInfoBySocket.set(ws, { userId: null, userName: null, roomId: null });
-
     ws.on('message', (data) => {
       const message = safeJsonParse(data.toString());
       if (!message || typeof message.type !== 'string') return;
 
-      const clientInfo = clientInfoBySocket.get(ws);
-      if (!clientInfo) return;
-
       if (message.type === 'hello') {
         if (typeof message.userId !== 'string' || typeof message.userName !== 'string') return;
-        clientInfo.userId = message.userId;
-        clientInfo.userName = message.userName;
-        clientsByUserId.set(message.userId, { ws, userId: message.userId, userName: message.userName, roomId: null });
+        
+        // 注册用户，保存 ws 连接
+        roomManager.registerUser(message.userId, {
+          name: message.userName,
+          connectionInfo: { ws }
+        });
+        wsToUserId.set(ws, message.userId);
+        
         ws.send(JSON.stringify({ type: 'hello-ack', userId: message.userId }));
         return;
       }
 
-      if (!clientInfo.userId) {
+      // 获取当前用户 ID
+      const userId = wsToUserId.get(ws);
+      if (!userId) {
         ws.send(JSON.stringify({ type: 'error', message: '未注册(hello)的连接' }));
         return;
       }
 
-      if (message.type === 'join') {
-        const roomId = String(message.roomId || '').trim();
-        const create = !!message.create;
-
-        if (!roomId) {
-          ws.send(JSON.stringify({ type: 'error', code: 'INVALID_ROOM_ID', message: '房间号不能为空' }));
+      try {
+        if (message.type === 'create-room') {
+          // 创建房间
+          const roomName = message.name || null;
+          roomManager.createRoom(roomName, userId);
           return;
         }
 
-        let set = rooms.get(roomId);
-        if (!create && !set) {
-          ws.send(JSON.stringify({ type: 'error', code: 'ROOM_NOT_FOUND', message: '房间不存在' }));
+        if (message.type === 'join-room' || message.type === 'join') {
+          // 加入房间
+          const roomId = String(message.roomId || '').trim();
+          
+          // 兼容旧逻辑：如果带 create=true，则尝试创建
+          if (message.create) {
+             roomManager.createRoom(null, userId);
+             return;
+          }
+
+          if (!roomId) {
+            ws.send(JSON.stringify({ type: 'error', code: 'INVALID_ROOM_ID', message: '房间号不能为空' }));
+            return;
+          }
+
+          // 如果用户已经在其他房间，先离开
+          const userInfo = roomManager.getUserInfo(userId);
+          if (userInfo && userInfo.currentRoom) {
+            roomManager.leaveRoom(userId);
+          }
+
+          roomManager.joinRoom(roomId, userId);
           return;
         }
 
-        leaveRoom(clientInfo.userId);
-
-        // 重新获取，防止leaveRoom副作用（虽然理论上不会影响其他房间）
-        set = rooms.get(roomId);
-        if (!set) {
-          set = new Set();
-          rooms.set(roomId, set);
+        if (message.type === 'leave-room' || message.type === 'leave') {
+          roomManager.leaveRoom(userId);
+          ws.send(JSON.stringify({ type: 'room-left' }));
+          return;
         }
-        set.add(clientInfo.userId);
 
-        const record = clientsByUserId.get(clientInfo.userId);
-        if (record) record.roomId = roomId;
-        clientInfo.roomId = roomId;
+        if (message.type === 'signal') {
+          const to = String(message.to || '');
+          const targetUser = roomManager.getUserInfo(to);
+          
+          if (targetUser && targetUser.connectionInfo && targetUser.connectionInfo.ws) {
+             if (targetUser.connectionInfo.ws.readyState === WebSocket.OPEN) {
+               targetUser.connectionInfo.ws.send(JSON.stringify({
+                 type: 'signal',
+                 from: userId,
+                 data: message.data
+               }));
+             }
+          }
+          return;
+        }
 
-        ws.send(JSON.stringify({ type: 'room-joined', roomId, users: getRoomUsers(roomId) }));
-        broadcastToRoom(roomId, {
-          type: 'user-joined',
-          roomId,
-          user: { id: clientInfo.userId, name: clientInfo.userName, speaking: false, volume: 80 }
-        }, clientInfo.userId);
-        return;
-      }
+        if (message.type === 'speaking') {
+          const userInfo = roomManager.getUserInfo(userId);
+          if (userInfo && userInfo.currentRoom) {
+            roomManager.broadcastToRoom(userInfo.currentRoom, {
+              type: 'user-speaking',
+              roomId: userInfo.currentRoom,
+              userId: userId,
+              speaking: !!message.speaking,
+              volumeDb: typeof message.volumeDb === 'number' ? message.volumeDb : null
+            }, userId); // 排除自己
+          }
+          return;
+        }
 
-      if (message.type === 'leave') {
-        leaveRoom(clientInfo.userId);
-        ws.send(JSON.stringify({ type: 'room-left' }));
-        return;
-      }
-
-      if (message.type === 'signal') {
-        const to = String(message.to || '');
-        const target = clientsByUserId.get(to);
-        if (!target || target.ws.readyState !== WebSocket.OPEN) return;
-        target.ws.send(JSON.stringify({ type: 'signal', from: clientInfo.userId, data: message.data }));
-        return;
-      }
-
-      if (message.type === 'speaking') {
-        if (!clientInfo.roomId) return;
-        broadcastToRoom(clientInfo.roomId, {
-          type: 'user-speaking',
-          roomId: clientInfo.roomId,
-          userId: clientInfo.userId,
-          speaking: !!message.speaking,
-          volumeDb: typeof message.volumeDb === 'number' ? message.volumeDb : null
-        }, clientInfo.userId);
-        return;
+      } catch (err) {
+        // 捕获 RoomManager 抛出的错误（如房间满、不存在等）
+        ws.send(JSON.stringify({
+          type: 'error',
+          code: err.message === '房间不存在' ? 'ROOM_NOT_FOUND' : 'JOIN_FAILED',
+          message: err.message
+        }));
       }
     });
 
     ws.on('close', () => {
-      const clientInfo = clientInfoBySocket.get(ws);
-      clientInfoBySocket.delete(ws);
-      if (!clientInfo || !clientInfo.userId) return;
-      leaveRoom(clientInfo.userId);
-      clientsByUserId.delete(clientInfo.userId);
+      const userId = wsToUserId.get(ws);
+      if (userId) {
+        roomManager.leaveRoom(userId);
+        // 这里不需要从 roomManager 删除用户，只需断开连接状态?
+        // RoomManager 没有 deleteUser 方法，但有 cleanupInactiveRooms
+        // 我们可以保留用户数据一段时间
+        wsToUserId.delete(ws);
+      }
     });
 
     ws.on('error', () => {});
@@ -173,14 +217,16 @@ function startSignalingServer({ port, host = '127.0.0.1', log = () => {} }) {
   return {
     port,
     host,
-    close: () =>
-      new Promise((resolve) => {
+    close: () => {
+      roomManager.cleanup();
+      return new Promise((resolve) => {
         try {
           wss.close(() => resolve());
         } catch (_) {
           resolve();
         }
-      })
+      });
+    }
   };
 }
 

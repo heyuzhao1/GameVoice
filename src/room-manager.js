@@ -102,9 +102,16 @@ class RoomManager extends EventEmitter {
     console.log(`用户 ${userId} 加入房间 ${roomId}`);
 
     // 通知其他用户
+    const safeUser = {
+      id: user.id,
+      name: user.name
+    };
+
     this.broadcastToRoom(roomId, {
       type: 'user-joined',
+      roomId,
       userId,
+      user: safeUser,
       timestamp: Date.now()
     }, userId);
 
@@ -141,6 +148,7 @@ class RoomManager extends EventEmitter {
     // 通知其他用户
     this.broadcastToRoom(roomId, {
       type: 'user-left',
+      roomId,
       userId,
       timestamp: Date.now()
     }, userId);

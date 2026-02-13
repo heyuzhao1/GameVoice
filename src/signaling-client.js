@@ -55,10 +55,12 @@ class SignalingClient extends EventEmitter {
                 this.ws = ws;
 
                 const timeout = setTimeout(() => {
-                    reject(new Error('连接信令服务器超时'));
-                    try {
-                        ws.close();
-                    } catch (_) { }
+                    if (!settled) {
+                        reject(new Error('连接信令服务器超时'));
+                        try {
+                            ws.close();
+                        } catch (_) { }
+                    }
                 }, 8000);
 
                 let settled = false;
@@ -99,9 +101,14 @@ class SignalingClient extends EventEmitter {
                         return;
                     }
 
+                    if (msg.type === 'room-created') {
+                        this.emit('room-created', { roomId: msg.roomId, roomName: msg.roomName });
+                        return;
+                    }
+
                     if (msg.type === 'room-joined') {
                         this.currentRoomId = msg.roomId;
-                        this.emit('room-joined', { roomId: msg.roomId, users: msg.users || [] });
+                        this.emit('room-joined', { roomId: msg.roomId, roomName: msg.roomName, users: msg.users || [] });
                         return;
                     }
 
@@ -196,7 +203,48 @@ class SignalingClient extends EventEmitter {
         }, delay);
     }
 
-    async join(roomId, options = {}) {
+    /**
+     * 创建房间
+     */
+    async createRoom(name = null) {
+        await this.connect();
+
+        return new Promise((resolve, reject) => {
+            let timer = null;
+            let cleanup = null;
+
+            const onCreated = ({ roomId, roomName }) => {
+                cleanup();
+                resolve({ id: roomId, name: roomName });
+            };
+
+            const onError = (err) => {
+                cleanup();
+                reject(err);
+            };
+
+            cleanup = () => {
+                if (timer) clearTimeout(timer);
+                this.off('room-created', onCreated);
+                this.off('error', onError);
+            };
+
+            timer = setTimeout(() => {
+                cleanup();
+                reject(new Error('创建房间超时'));
+            }, 5000);
+
+            this.on('room-created', onCreated);
+            this.on('error', onError);
+
+            this._send({ type: 'create-room', name });
+        });
+    }
+
+    /**
+     * 加入房间
+     */
+    async join(roomId) {
         const rid = String(roomId || '').trim();
         if (!rid) throw new Error('roomId 不能为空');
         await this.connect();
@@ -205,10 +253,10 @@ class SignalingClient extends EventEmitter {
             let timer = null;
             let cleanup = null;
 
-            const onJoined = ({ roomId }) => {
-                if (roomId === rid) {
+            const onJoined = ({ roomId: joinedRoomId, users }) => {
+                if (joinedRoomId === rid) {
                     cleanup();
-                    resolve({ id: roomId });
+                    resolve({ id: joinedRoomId, users });
                 }
             };
 
@@ -231,13 +279,13 @@ class SignalingClient extends EventEmitter {
             this.on('room-joined', onJoined);
             this.on('error', onError);
 
-            this._send({ type: 'join', roomId: rid, create: !!options.create });
+            this._send({ type: 'join-room', roomId: rid });
         });
     }
 
     async leave() {
         await this.connect();
-        this._send({ type: 'leave' });
+        this._send({ type: 'leave-room' });
     }
 
     sendSignal(toUserId, data) {
@@ -271,4 +319,3 @@ class SignalingClient extends EventEmitter {
 
 export default SignalingClient;
 // module.exports = SignalingClient;
-

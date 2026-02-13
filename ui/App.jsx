@@ -11,6 +11,56 @@ import {
   Headphones,
 } from 'lucide-react'
 import { useVoiceApp } from './voice-app-hook'
+import {
+  Skeleton,
+  AnimatedButton,
+  Card,
+  FadeIn,
+  AnimatedInput,
+} from './components/UIComponents'
+
+const AudioDeviceSelector = ({
+  audioDevices,
+  selectedDevice,
+  handleDeviceChange,
+  isLoadingDevices,
+  refreshDevices,
+}) => (
+  <div>
+    <label className="block text-sm font-medium mb-2 flex justify-between items-center">
+      音频输入设备
+      <button
+        onClick={() => refreshDevices && refreshDevices()}
+        className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
+        type="button"
+        disabled={isLoadingDevices}
+      >
+        {isLoadingDevices ? (
+          <span className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mr-1"></span>
+        ) : null}
+        刷新
+      </button>
+    </label>
+    <select
+      value={selectedDevice || ''}
+      onChange={handleDeviceChange}
+      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white disabled:opacity-60"
+      disabled={isLoadingDevices}
+    >
+      {isLoadingDevices && audioDevices.length === 0 ? (
+        <option value="">正在检测设备...</option>
+      ) : audioDevices.length === 0 ? (
+        <option value="">未找到音频输入设备</option>
+      ) : (
+        audioDevices.map((device) => (
+          <option key={device.deviceId} value={device.deviceId}>
+            {device.label || `音频设备 ${device.deviceId.slice(0, 8)}`}
+          </option>
+        ))
+      )}
+    </select>
+  </div>
+)
 
 const App = () => {
   const {
@@ -30,6 +80,7 @@ const App = () => {
     selectedDevice,
     isLoadingDevices,
     selectDevice,
+    refreshDevices, // 假设 hook 导出了 refreshDevices，如果没有需要检查 hook
 
     // 音频控制
     isMuted,
@@ -61,14 +112,39 @@ const App = () => {
   const [localRoomId, setLocalRoomId] = useState('')
   const [joinError, setJoinError] = useState('')
   const [isJoining, setIsJoining] = useState(false)
+  const pendingJoinRef = useRef(null)
+
+  // 监听深度链接自动加入
+  useEffect(() => {
+    if (window.electronAPI && window.electronAPI.onJoinRoomViaLink) {
+      window.electronAPI.onJoinRoomViaLink((roomId) => {
+        console.log('通过链接自动加入房间:', roomId)
+        setLocalRoomId(roomId)
+        if (isInitialized) {
+          handleJoinRoom(roomId)
+        } else {
+          pendingJoinRef.current = roomId
+        }
+      })
+    }
+  }, [isInitialized])
+
+  useEffect(() => {
+    if (isInitialized && pendingJoinRef.current) {
+      handleJoinRoom(pendingJoinRef.current)
+      pendingJoinRef.current = null
+    }
+  }, [isInitialized])
 
   const handleMuteToggle = () => {
     toggleMute()
   }
 
-  const handleJoinRoom = async () => {
+  const handleJoinRoom = async (overrideRoomId = null) => {
     setJoinError('')
-    const rid = localRoomId.trim()
+    const rid = (
+      typeof overrideRoomId === 'string' ? overrideRoomId : localRoomId
+    ).trim()
 
     if (!rid) {
       setJoinError('请输入房间ID')
@@ -107,12 +183,59 @@ const App = () => {
     try {
       setIsJoining(true)
       const room = await createRoom()
-      if (room && room.id) setLocalRoomId(room.id)
+      if (room && room.id) {
+        setLocalRoomId(room.id)
+        // 注意：createRoom现在会自动加入，或者我们可以在这里手动加入
+        // 取决于 createRoom 的实现。如果 createRoom 返回 room 对象且已经触发了 room-joined，则不需要做任何事
+        // 如果 createRoom 只是创建了房间，我们需要加入
+        // 根据之前的修改，createRoom 会触发 room-created，然后服务器发送 room-joined
+        // 所以不需要额外操作
+      }
     } catch (err) {
       setJoinError('创建房间失败: ' + err.message)
     } finally {
       setIsJoining(false)
     }
+  }
+
+  const copyInviteLink = () => {
+    // 确保 roomId 存在
+    if (!roomId) return
+
+    // 直接复制房间号
+    navigator.clipboard
+      .writeText(roomId)
+      .then(() => {
+        // 简单的反馈
+        const btn = document.getElementById('copy-link-btn')
+        if (btn) {
+          btn.innerText = '已复制'
+          setTimeout(() => {
+            btn.innerText = '复制房间号'
+          }, 2000)
+        }
+      })
+      .catch((err) => {
+        console.error('复制失败:', err)
+        // 如果 clipboard API 失败，尝试 execCommand 降级方案
+        const textArea = document.createElement('textarea')
+        textArea.value = roomId
+        document.body.appendChild(textArea)
+        textArea.select()
+        try {
+          document.execCommand('copy')
+          const btn = document.getElementById('copy-link-btn')
+          if (btn) {
+            btn.innerText = '已复制!'
+            setTimeout(() => {
+              btn.innerText = '复制房间号'
+            }, 2000)
+          }
+        } catch (e) {
+          console.error('降级复制也失败:', e)
+        }
+        document.body.removeChild(textArea)
+      })
   }
 
   const handleLeaveRoom = async () => {
@@ -128,41 +251,32 @@ const App = () => {
     selectDevice(e.target.value)
   }
 
-  // 显示加载状态
+  // 显示加载状态 (骨架屏)
   if (isLoading) {
     return (
-      <div
-        className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white flex items-center justify-center"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          background: '#111',
-          color: 'white',
-        }}
-      >
-        <div className="text-center">
-          <div
-            className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"
-            style={{
-              width: '64px',
-              height: '64px',
-              border: '4px solid #3b82f6',
-              borderTopColor: 'transparent',
-              borderRadius: '50%',
-              margin: '0 auto 16px',
-            }}
-          ></div>
-          <div className="text-lg font-medium">正在初始化语音应用...</div>
-          {error && (
-            <div
-              className="mt-4 text-red-400"
-              style={{ color: '#f87171', marginTop: '16px' }}
-            >
-              错误: {error}
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col animate-fade-in">
+        <div className="h-16 border-b border-gray-800 flex items-center px-6 bg-gray-900/50 backdrop-blur-sm">
+          <Skeleton width="120px" height="24px" className="mr-auto" />
+          <div className="flex space-x-4">
+            <Skeleton width="80px" height="20px" />
+            <Skeleton width="80px" height="20px" />
+            <Skeleton width="32px" height="32px" circle />
+          </div>
+        </div>
+        <div className="container mx-auto p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1">
+          <div className="lg:col-span-1 space-y-6">
+            <Skeleton height="300px" className="rounded-2xl" />
+            <Skeleton height="150px" className="rounded-2xl" />
+          </div>
+          <div className="lg:col-span-2">
+            <Skeleton height="400px" className="rounded-2xl" />
+            <div className="mt-6 grid grid-cols-4 gap-4">
+              <Skeleton height="80px" className="rounded-xl" />
+              <Skeleton height="80px" className="rounded-xl" />
+              <Skeleton height="80px" className="rounded-xl" />
+              <Skeleton height="80px" className="rounded-xl" />
             </div>
-          )}
+          </div>
         </div>
       </div>
     )
@@ -193,43 +307,51 @@ const App = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white">
       {/* 顶部状态栏 */}
-      <div className="flex items-center justify-between px-6 py-3 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Volume2 className="w-5 h-5 text-green-400" />
-            <span className="text-sm font-medium">GameVoice</span>
+      <FadeIn enableAnimations={settings.enableAnimations} direction="down">
+        <div className="flex items-center justify-between px-6 py-3 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <Volume2 className="w-5 h-5 text-green-400" />
+              <span className="text-sm font-medium">GameVoice</span>
+            </div>
+            <div
+              className={`px-3 py-1 rounded-full text-xs ${isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}
+            >
+              {isConnected ? '已连接' : '未连接'}
+            </div>
           </div>
-          <div
-            className={`px-3 py-1 rounded-full text-xs ${isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}
-          >
-            {isConnected ? '已连接' : '未连接'}
-          </div>
-        </div>
 
-        <div className="flex items-center space-x-6">
-          <div className="flex items-center space-x-2">
-            <Wifi className="w-4 h-4" />
-            <span className="text-sm">{connectionStats.latency}ms</span>
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-2">
+              <Wifi className="w-4 h-4" />
+              <span className="text-sm">{connectionStats.latency}ms</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Clock className="w-4 h-4" />
+              <span className="text-sm">{connectionStats.bandwidth}kbps</span>
+            </div>
+            <AnimatedButton
+              variant="ghost"
+              onClick={() => (showSettings ? closeSettings() : openSettings())}
+              className="p-2 hover:bg-gray-700 rounded-lg"
+              enableAnimations={settings.enableAnimations}
+            >
+              <Settings className="w-5 h-5" />
+            </AnimatedButton>
           </div>
-          <div className="flex items-center space-x-2">
-            <Clock className="w-4 h-4" />
-            <span className="text-sm">{connectionStats.bandwidth}kbps</span>
-          </div>
-          <button
-            onClick={() => (showSettings ? closeSettings() : openSettings())}
-            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
         </div>
-      </div>
+      </FadeIn>
 
       <div className="container mx-auto px-6 py-8">
         {/* 主内容区 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* 左侧：房间控制 */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
+          <FadeIn
+            className="lg:col-span-1 space-y-6"
+            delay={100}
+            enableAnimations={settings.enableAnimations}
+          >
+            <Card className="p-6" enableAnimations={settings.enableAnimations}>
               <h2 className="text-xl font-bold mb-4 flex items-center">
                 <Users className="w-6 h-6 mr-2" />
                 房间控制
@@ -237,22 +359,34 @@ const App = () => {
 
               {!isConnected ? (
                 <div className="space-y-4">
+                  {/* 音频设备选择器 */}
+                  <div className="p-3 bg-gray-900 rounded-lg border border-gray-700">
+                    <AudioDeviceSelector
+                      audioDevices={audioDevices}
+                      selectedDevice={selectedDevice}
+                      handleDeviceChange={handleDeviceChange}
+                      isLoadingDevices={isLoadingDevices}
+                      refreshDevices={refreshDevices}
+                    />
+                  </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">
                       房间ID
                     </label>
-                    <input
+                    <AnimatedInput
                       type="text"
                       value={localRoomId}
                       onChange={(e) => setLocalRoomId(e.target.value)}
                       placeholder="输入房间ID"
-                      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500"
+                      enableAnimations={settings.enableAnimations}
                     />
                   </div>
-                  <button
+                  <AnimatedButton
                     onClick={handleJoinRoom}
                     disabled={!localRoomId.trim() || isJoining}
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center justify-center"
+                    variant="primary"
+                    className="w-full py-3"
+                    enableAnimations={settings.enableAnimations}
                   >
                     {isJoining ? (
                       <>
@@ -262,18 +396,23 @@ const App = () => {
                     ) : (
                       '加入房间'
                     )}
-                  </button>
-                  <button
+                  </AnimatedButton>
+                  <AnimatedButton
                     onClick={handleCreateRoom}
                     disabled={isJoining}
-                    className="w-full py-3 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+                    variant="secondary"
+                    className="w-full py-3"
+                    enableAnimations={settings.enableAnimations}
                   >
                     创建随机房间
-                  </button>
+                  </AnimatedButton>
                   {joinError && (
-                    <div className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <FadeIn
+                      className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-lg p-3"
+                      enableAnimations={settings.enableAnimations}
+                    >
                       {joinError}
-                    </div>
+                    </FadeIn>
                   )}
                 </div>
               ) : (
@@ -282,16 +421,25 @@ const App = () => {
                     <div className="text-2xl font-bold mb-2">
                       房间 #{roomId}
                     </div>
+                    <button
+                      id="copy-link-btn"
+                      onClick={copyInviteLink}
+                      className="text-sm bg-blue-600/20 text-blue-400 px-3 py-1 rounded-full hover:bg-blue-600/30 transition-colors mb-2"
+                    >
+                      复制房间号
+                    </button>
                     <div className="text-gray-400">
                       {activeUsers.length} 人在线
                     </div>
                   </div>
-                  <button
+                  <AnimatedButton
                     onClick={handleLeaveRoom}
-                    className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors"
+                    variant="danger"
+                    className="w-full py-3"
+                    enableAnimations={settings.enableAnimations}
                   >
                     离开房间
-                  </button>
+                  </AnimatedButton>
                 </div>
               )}
 
@@ -330,10 +478,10 @@ const App = () => {
                   />
                 </div>
               </div>
-            </div>
+            </Card>
 
             {/* 连接统计 */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
+            <Card className="p-6" enableAnimations={settings.enableAnimations}>
               <h3 className="font-bold mb-4">连接统计</h3>
               <div className="space-y-3">
                 <div className="flex justify-between">
@@ -367,83 +515,91 @@ const App = () => {
                   </span>
                 </div>
               </div>
-            </div>
-          </div>
+            </Card>
+          </FadeIn>
 
           {/* 右侧：用户列表 */}
           <div className="lg:col-span-2">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
-              <h2 className="text-xl font-bold mb-6">
-                在线用户 ({activeUsers.length})
-              </h2>
+            <FadeIn delay={200} enableAnimations={settings.enableAnimations}>
+              <Card
+                className="p-6"
+                enableAnimations={settings.enableAnimations}
+              >
+                <h2 className="text-xl font-bold mb-6">
+                  在线用户 ({activeUsers.length})
+                </h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {activeUsers.map((user) => (
-                  <div
-                    key={user.id}
-                    className={`p-4 rounded-xl border transition-all ${user.speaking ? 'bg-green-500/10 border-green-500/30' : 'bg-gray-900/50 border-gray-700'}`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {activeUsers.map((user) => (
+                    <Card
+                      key={user.id}
+                      hover={true}
+                      enableAnimations={settings.enableAnimations}
+                      className={`p-4 border transition-all ${user.speaking ? 'bg-green-500/10 border-green-500/30' : 'bg-gray-900/50 border-gray-700'}`}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-3">
+                          <div
+                            className={`w-3 h-3 rounded-full ${user.speaking ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}
+                          />
+                          <span className="font-medium">{user.name}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Volume2 className="w-4 h-4" />
+                          <span className="text-sm">{user.volume}%</span>
+                        </div>
+                      </div>
+
+                      {/* 音量条 */}
+                      <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
                         <div
-                          className={`w-3 h-3 rounded-full ${user.speaking ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}
+                          className="h-full bg-green-500 rounded-full transition-all duration-100 ease-linear"
+                          style={{ width: `${user.volume}%` }}
                         />
-                        <span className="font-medium">{user.name}</span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Volume2 className="w-4 h-4" />
-                        <span className="text-sm">{user.volume}%</span>
+
+                      {/* 用户状态 */}
+                      <div className="flex items-center justify-between mt-3 text-sm text-gray-400">
+                        <span>{user.speaking ? '正在说话...' : '静音中'}</span>
+                        <span>ID: {user.id}</span>
                       </div>
-                    </div>
-
-                    {/* 音量条 */}
-                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-green-500 rounded-full transition-all"
-                        style={{ width: `${user.volume}%` }}
-                      />
-                    </div>
-
-                    {/* 用户状态 */}
-                    <div className="flex items-center justify-between mt-3 text-sm text-gray-400">
-                      <span>{user.speaking ? '正在说话...' : '静音中'}</span>
-                      <span>ID: {user.id}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* 空状态 */}
-              {activeUsers.length === 0 && (
-                <div className="text-center py-12">
-                  <Users className="w-16 h-16 mx-auto text-gray-600 mb-4" />
-                  <h3 className="text-xl font-medium mb-2">暂无用户在线</h3>
-                  <p className="text-gray-400">
-                    加入房间后，其他用户将显示在这里
-                  </p>
+                    </Card>
+                  ))}
                 </div>
-              )}
-            </div>
+
+                {/* 空状态 */}
+                {activeUsers.length === 0 && (
+                  <div className="text-center py-12">
+                    <Users className="w-16 h-16 mx-auto text-gray-600 mb-4 animate-float" />
+                    <h3 className="text-xl font-medium mb-2">暂无用户在线</h3>
+                    <p className="text-gray-400">
+                      加入房间后，其他用户将显示在这里
+                    </p>
+                  </div>
+                )}
+              </Card>
+            </FadeIn>
 
             {/* 快速操作 */}
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-              <button className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 hover:bg-gray-700/50 transition-colors text-center">
-                <div className="text-2xl mb-2">🎤</div>
-                <div className="text-sm">语音激活</div>
-              </button>
-              <button className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 hover:bg-gray-700/50 transition-colors text-center">
-                <div className="text-2xl mb-2">🔇</div>
-                <div className="text-sm">降噪</div>
-              </button>
-              <button className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 hover:bg-gray-700/50 transition-colors text-center">
-                <div className="text-2xl mb-2">📊</div>
-                <div className="text-sm">统计</div>
-              </button>
-              <button className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 hover:bg-gray-700/50 transition-colors text-center">
-                <div className="text-2xl mb-2">⚙️</div>
-                <div className="text-sm">高级</div>
-              </button>
-            </div>
+            <FadeIn
+              className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4"
+              delay={300}
+              enableAnimations={settings.enableAnimations}
+            >
+              {['🎤 语音激活', '🔇 降噪', '📊 统计', '⚙️ 高级'].map(
+                (item, i) => (
+                  <AnimatedButton
+                    key={i}
+                    variant="outline"
+                    className="p-4 flex-col h-auto"
+                    enableAnimations={settings.enableAnimations}
+                  >
+                    <div className="text-2xl mb-2">{item.split(' ')[0]}</div>
+                    <div className="text-sm">{item.split(' ')[1]}</div>
+                  </AnimatedButton>
+                ),
+              )}
+            </FadeIn>
           </div>
         </div>
       </div>
@@ -463,28 +619,13 @@ const App = () => {
             </div>
 
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  音频输入设备
-                </label>
-                <select
-                  value={selectedDevice}
-                  onChange={handleDeviceChange}
-                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500"
-                  disabled={isLoadingDevices}
-                >
-                  {isLoadingDevices ? (
-                    <option>加载设备中...</option>
-                  ) : (
-                    audioDevices.map((device) => (
-                      <option key={device.deviceId} value={device.deviceId}>
-                        {device.label ||
-                          `音频设备 ${device.deviceId.slice(0, 8)}`}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
+              <AudioDeviceSelector
+                audioDevices={audioDevices}
+                selectedDevice={selectedDevice}
+                handleDeviceChange={handleDeviceChange}
+                isLoadingDevices={isLoadingDevices}
+                refreshDevices={refreshDevices}
+              />
 
               <div>
                 <label className="block text-sm font-medium mb-2">
@@ -502,6 +643,17 @@ const App = () => {
                   网络优化
                 </label>
                 <div className="space-y-2">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={settings.enableAnimations}
+                      onChange={(e) =>
+                        updateSetting('enableAnimations', e.target.checked)
+                      }
+                    />
+                    <span className="text-sm">启用界面动画</span>
+                  </label>
                   <label className="flex items-center">
                     <input type="checkbox" className="mr-2" defaultChecked />
                     <span className="text-sm">启用低延迟模式</span>
