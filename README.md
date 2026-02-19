@@ -44,9 +44,9 @@
 
 ```mermaid
 graph TD
-    UserA[用户 A (主机)] -- WebSocket (信令) --> SigServer[信令服务器]
-    UserB[用户 B] -- WebSocket (信令) --> SigServer
-    UserA <== WebRTC (UDP/音频流) ==> UserB
+    UserA[用户 A 主机] -- WebSocket 信令 --> SigServer[信令服务器]
+    UserB[用户 B] -- WebSocket 信令 --> SigServer
+    UserA <== WebRTC UDP 音频流 ==> UserB
 ```
 
 - **信令层 (Signaling)**: WebSocket (Node.js)，负责交换 SDP 和 ICE Candidate。
